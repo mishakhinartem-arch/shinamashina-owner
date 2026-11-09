@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#ff6b00" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Шинамашина" />
+  <title>Шинамашина — владелец</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --surface: #fff;
+      --ink: #141a22;
+      --muted: #5b6b7c;
+      --line: #d5dde7;
+      --orange: #ff6b00;
+      --blue: #2563eb;
+      --ok: #166534;
+      --bad: #9f1239;
+      --safe-t: env(safe-area-inset-top);
+      --safe-b: env(safe-area-inset-bottom);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    body { min-height: 100dvh; padding: calc(12px + var(--safe-t)) 16px calc(84px + var(--safe-b)); }
+    h1 { font-size: 1.35rem; margin: 0; }
+    h2 { font-size: 1rem; margin: 18px 0 8px; }
+    button, input { font: inherit; }
+    button { border: 0; border-radius: 12px; min-height: 44px; padding: 10px 14px; background: var(--orange); color: #111; font-weight: 700; }
+    button.ghost { background: #e8edf3; }
+    input { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fff; }
+    label { display: block; margin: 12px 0 6px; font-weight: 650; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .logo { width: 42px; height: 42px; border-radius: 12px; background: #0f1419 url("icon.svg") center/28px no-repeat; }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin-top: 10px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat b { display: block; font-size: 1.25rem; }
+    .muted { color: var(--muted); font-size: 0.92rem; }
+    .blue { color: var(--blue); }
+    .warn { background: #fff1f2; color: var(--bad); border-radius: 12px; padding: 10px 12px; margin-top: 10px; }
+    .oknote { color: var(--ok); font-size: 0.92rem; }
+    .tabs { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 8px 8px calc(8px + var(--safe-b)); background: #fff; border-top: 1px solid var(--line); }
+    .tabs button { background: transparent; color: var(--muted); min-height: 40px; padding: 6px 2px; font-size: 0.78rem; }
+    .tabs button.on { color: #111; background: #fff4eb; }
+    .hide { display: none !important; }
+    .row { display: flex; justify-content: space-between; gap: 8px; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li { padding: 6px 0; border-top: 1px solid var(--line); }
+    .err { color: var(--bad); min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><div class="logo" aria-hidden="true"></div><h1>Шинамашина</h1></div>
+    <button type="button" id="logout" class="ghost hide">Выйти</button>
+  </header>
+  <p class="muted" id="stamp"></p>
+  <div id="stale" class="warn hide"></div>
+
+  <section id="login">
+    <h2>Кабинет владельца</h2>
+    <p class="muted">Только чтение. Нужен пользователь с ролью owner. service_role сюда вводить нельзя.</p>
+    <form id="login-form">
+      <label for="url">Адрес Supabase</label>
+      <input id="url" type="url" autocomplete="off" required />
+      <label for="key">Публичный ключ</label>
+      <input id="key" type="text" autocomplete="off" required />
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" required placeholder="owner@example.com" />
+      <label for="password">Пароль</label>
+      <input id="password" type="password" autocomplete="current-password" required />
+      <p class="err" id="login-err"></p>
+      <button type="submit">Войти</button>
+    </form>
+  </section>
+
+  <section id="app" class="hide">
+    <label for="day">Дата (Москва)</label>
+    <input id="day" type="date" />
+    <div id="screen-today"></div>
+    <div id="screen-sales" class="hide"></div>
+    <div id="screen-visits" class="hide"></div>
+    <div id="screen-shifts" class="hide"></div>
+    <p class="err" id="app-err"></p>
+  </section>
+
+  <nav class="tabs hide" id="tabs">
+    <button type="button" data-tab="today" class="on">Сегодня</button>
+    <button type="button" data-tab="sales">Чеки</button>
+    <button type="button" data-tab="visits">Визиты</button>
+    <button type="button" data-tab="shifts">Смены</button>
+  </nav>
+
+  <script>
+    const DEFAULT_URL = "https://abijoackveadffwkpzow.supabase.co";
+    const DEFAULT_KEY = "sb_publishable_xkDM-alNOQ8Ey4oEwC601A_Z9l3LTrh";
+    const STORE = "shinama-owner-refresh";
+    const NO_ACCESS = "Нет доступа";
+    const STALE_MS = 10 * 60 * 1000;
+
+    const urlInput = document.getElementById("url");
+    const keyInput = document.getElementById("key");
+    const emailInput = document.getElementById("email");
+    const passInput = document.getElementById("password");
+    const loginEl = document.getElementById("login");
+    const appEl = document.getElementById("app");
+    const tabsEl = document.getElementById("tabs");
+    const logoutBtn = document.getElementById("logout");
+    const dayInput = document.getElementById("day");
+    let accessToken = "";
+    let timer = null;
+
+    urlInput.value = DEFAULT_URL;
+    keyInput.value = DEFAULT_KEY;
+
+    function loopback(value) {
+      try {
+        const host = new URL(value).hostname;
+        return host === "127.0.0.1" || host === "localhost";
+      } catch (e) {
+        return false;
+      }
+    }
+
+    const apiOverride = new URLSearchParams(location.search).get("api");
+    if (apiOverride && loopback(apiOverride)) urlInput.value = apiOverride;
+
+    function moscowToday() {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit"
+      }).format(new Date());
+    }
+
+    function dayBounds(iso) {
+      return {
+        start: Date.parse(iso + "T00:00:00+03:00") / 1000,
+        end: Date.parse(iso + "T24:00:00+03:00") / 1000
+      };
+    }
+
+    function rub(n) {
+      const x = Number(n);
+      if (!Number.isFinite(x)) return "—";
+      return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(Math.round(x)) + " \u20bd";
+    }
+
+    function hm(epochSeconds) {
+      if (epochSeconds == null || epochSeconds === "") return "—";
+      return new Intl.DateTimeFormat("ru-RU", {
+        timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit"
+      }).format(new Date(Number(epochSeconds) * 1000));
+    }
+
+    function hmDate(ms) {
+      return new Intl.DateTimeFormat("ru-RU", {
+        timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit"
+      }).format(new Date(ms));
+    }
+
+    function num(v) { const x = Number(v); return Number.isFinite(x) ? x : 0; }
+
+    function names(list) {
+      if (!Array.isArray(list) || !list.length) return "не указано";
+      return list.map(function (p) {
+        return [p.last_name, p.first_name].filter(Boolean).join(" ") || ("#" + (p.id || ""));
+      }).join(", ");
+    }
+
+    function rejectSecret(key) {
+      const low = (key || "").toLowerCase();
+      if (low.includes("service_role") || low.startsWith("sb_secret")) {
+        throw new Error("service_role в эту страницу вводить нельзя");
+      }
+    }
+
+    function readSession() {
+      try { return JSON.parse(localStorage.getItem(STORE) || "null"); }
+      catch (e) { return null; }
+    }
+
+    function writeSession(refresh, email) {
+      localStorage.setItem(STORE, JSON.stringify({ refresh_token: refresh, email: email || "" }));
+    }
+
+    function clearSession() {
+      localStorage.removeItem(STORE);
+      accessToken = "";
+    }
+
+    async function authPost(grant, body) {
+      rejectSecret(keyInput.value.trim());
+      const res = await fetch(urlInput.value.replace(/\/$/, "") + "/auth/v1/token?grant_type=" + grant, {
+        method: "POST",
+        headers: { apikey: keyInput.value.trim(), "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.access_token) {
+        const err = new Error(data.msg || data.error_description || data.error || "Вход не выполнен");
+        err.status = res.status;
+        throw err;
+      }
+      return data;
+    }
+
+    async function rest(path) {
+      const res = await fetch(urlInput.value.replace(/\/$/, "") + path, {
+        headers: {
+          apikey: keyInput.value.trim(),
+          Authorization: "Bearer " + accessToken,
+          Accept: "application/json"
+        }
+      });
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (e) { data = { message: text }; }
+      if (!res.ok) {
+        const err = new Error((data && (data.message || data.msg)) || ("HTTP " + res.status));
+        err.status = res.status;
+        err.code = data && data.code;
+        throw err;
+      }
+      return data;
+    }
+
+    function noAccess(errEl) {
+      clearSession();
+      showLogin();
+      errEl.textContent = NO_ACCESS;
+    }
+
+    async function ensureOwner() {
+      let rows;
+      try {
+        rows = await rest("/rest/v1/allowlist?select=role&limit=5");
+      } catch (e) {
+        if (e.code === "42501" || e.status === 401 || e.status === 403) {
+          noAccess(document.getElementById("login-err"));
+          return false;
+        }
+        throw e;
+      }
+      const owner = Array.isArray(rows) && rows.some(function (r) { return r && r.role === "owner"; });
+      if (!owner) {
+        noAccess(document.getElementById("login-err"));
+        return false;
+      }
+      return true;
+    }
+
+    function showLogin() {
+      loginEl.classList.remove("hide");
+      appEl.classList.add("hide");
+      tabsEl.classList.add("hide");
+      logoutBtn.classList.add("hide");
+      if (timer) clearInterval(timer);
+      timer = null;
+    }
+
+    function showApp() {
+      loginEl.classList.add("hide");
+      appEl.classList.remove("hide");
+      tabsEl.classList.remove("hide");
+      logoutBtn.classList.remove("hide");
+      if (!dayInput.value) dayInput.value = moscowToday();
+    }
+
+    async function loadDashboard() {
+      const errEl = document.getElementById("app-err");
+      errEl.textContent = "";
+      const bounds = dayBounds(dayInput.value || moscowToday());
+      const qSales = "/rest/v1/sales?select=device_id,client_op_id,local_id,shift_local_id,local_ts,payment,total,served_by,synced_at&order=local_ts.desc";
+      const qItems = "/rest/v1/sale_items?select=device_id,client_op_id,sale_op_id,position,name,price,qty,synced_at&order=position.asc";
+      const qVisits = "/rest/v1/visits?select=device_id,client_op_id,local_id,local_client_id,items,total,payment,served_by,local_created_at,synced_at&order=local_created_at.desc";
+      const qShifts = "/rest/v1/shifts?select=device_id,client_op_id,local_id,started_at,ended_at,revenue_total,revenue_cash,revenue_card,revenue_qr,revenue_cashless,payroll_total,payroll_paid,payroll_debt,synced_at&order=started_at.desc";
+      const qAtt = "/rest/v1/attendance?select=device_id,client_op_id,employee_local_id,shift_local_id,clock_in,clock_out,synced_at";
+      const qEmp = "/rest/v1/employees?select=device_id,local_id,first_name,last_name,synced_at";
+      const qPay = "/rest/v1/payroll_lines?select=device_id,client_op_id,shift_local_id,first_name,last_name,pay,paid,debt,synced_at";
+      const qCol = "/rest/v1/collections?select=device_id,client_op_id,shift_local_id,local_ts,amount,note,synced_at&order=local_ts.desc";
+      const qDrawer = "/rest/v1/drawer_ops?select=device_id,client_op_id,kind,local_ts,amount,balance_after,synced_at&order=local_ts.desc";
+      let pack;
+      try {
+        pack = await Promise.all([
+          rest(qSales), rest(qItems), rest(qVisits), rest(qShifts), rest(qAtt), rest(qEmp), rest(qPay), rest(qCol), rest(qDrawer)
+        ]);
+      } catch (e) {
+        if (e.status === 401) {
+          const session = readSession();
+          if (session && session.refresh_token) {
+            try {
+              const tok = await authPost("refresh_token", { refresh_token: session.refresh_token });
+              accessToken = tok.access_token;
+              writeSession(tok.refresh_token || session.refresh_token, session.email);
+              return loadDashboard();
+            } catch (err) {
+              clearSession();
+              showLogin();
+              document.getElementById("login-err").textContent = "Сессия истекла. Войдите снова.";
+              return;
+            }
+          }
+        }
+        if (e.code === "42501" || e.status === 403) {
+          noAccess(document.getElementById("login-err"));
+          return;
+        }
+        errEl.textContent = e.message || "Нет связи с облаком";
+        return;
+      }
+      const sales = pack[0] || [];
+      const items = pack[1] || [];
+      const visits = pack[2] || [];
+      const shifts = pack[3] || [];
+      const attendance = pack[4] || [];
+      const employees = pack[5] || [];
+      const payroll = pack[6] || [];
+      const collections = pack[7] || [];
+      const drawer = pack[8] || [];
+      renderAll({ sales, items, visits, shifts, attendance, employees, payroll, collections, drawer, bounds });
+    }
+
+    function inDay(epoch, bounds) {
+      const t = Number(epoch);
+      return Number.isFinite(t) && t >= bounds.start && t < bounds.end;
+    }
+
+    function empName(deviceId, localId, employees) {
+      const row = employees.find(function (e) {
+        return e.device_id === deviceId && Number(e.local_id) === Number(localId);
+      });
+      if (!row) return localId == null ? "—" : ("#" + localId);
+      return [row.last_name, row.first_name].filter(Boolean).join(" ");
+    }
+
+    function latestSync(groups) {
+      let max = null;
+      groups.forEach(function (rows) {
+        (rows || []).forEach(function (row) {
+          const t = Date.parse(row.synced_at || "");
+          if (Number.isFinite(t) && (max == null || t > max)) max = t;
+        });
+      });
+      return max;
+    }
+
+    function renderAll(data) {
+      const daySales = data.sales.filter(function (s) { return inDay(s.local_ts, data.bounds); });
+      const sums = { cash: 0, card: 0, qr: 0 };
+      daySales.forEach(function (s) {
+        if (sums[s.payment] != null) sums[s.payment] += num(s.total);
+      });
+      const total = sums.cash + sums.card + sums.qr;
+      const latestDrawer = data.drawer.slice().sort(function (a, b) { return num(b.local_ts) - num(a.local_ts); })[0];
+      const openShifts = data.shifts.filter(function (s) { return s.ended_at == null; });
+      const dayShifts = data.shifts.filter(function (s) { return inDay(s.started_at, data.bounds); });
+      const dayVisits = data.visits.filter(function (v) { return inDay(v.local_created_at, data.bounds); });
+
+      let accrued = 0;
+      openShifts.forEach(function (sh) {
+        data.payroll.filter(function (p) {
+          return p.device_id === sh.device_id && Number(p.shift_local_id) === Number(sh.local_id);
+        }).forEach(function (p) { accrued += num(p.pay); });
+      });
+
+      const people = [];
+      openShifts.forEach(function (sh) {
+        data.attendance.filter(function (a) {
+          return a.device_id === sh.device_id && Number(a.shift_local_id) === Number(sh.local_id) && a.clock_out == null;
+        }).forEach(function (a) {
+          people.push(empName(a.device_id, a.employee_local_id, data.employees) + " с " + hm(a.clock_in));
+        });
+      });
+
+      const syncMs = latestSync([data.sales, data.shifts, data.visits, data.drawer, data.attendance]);
+      const now = Date.now();
+      document.getElementById("stamp").textContent = "обновлено " + hmDate(now) +
+        (syncMs ? (" · планшет синхронизировал " + hmDate(syncMs)) : " · синхронизаций ещё не было");
+      const stale = document.getElementById("stale");
+      if (!syncMs || now - syncMs > STALE_MS) {
+        stale.classList.remove("hide");
+        stale.textContent = syncMs
+          ? "Нет синхронизации больше 10 минут. Цифры могут отставать от кассы."
+          : "Облако ещё пустое: планшет не присылал данные.";
+      } else {
+        stale.classList.add("hide");
+      }
+
+      document.getElementById("screen-today").innerHTML =
+        "<div class='grid'>" +
+        stat("Выручка", rub(total)) +
+        stat("Наличные", rub(sums.cash)) +
+        stat("Карта", rub(sums.card), true) +
+        stat("QR", rub(sums.qr), true) +
+        stat("В ящике", latestDrawer ? rub(latestDrawer.balance_after) : "—") +
+        stat("ЗП на открытых", rub(accrued)) +
+        "</div>" +
+        "<div class='card'><b>Открытые смены</b><p class='muted'>" +
+        (openShifts.length ? openShifts.map(function (s) {
+          return "Смена #" + s.local_id + " с " + hm(s.started_at);
+        }).join("<br>") : "Нет открытой смены") +
+        "</p><p>" + (people.length ? people.join("<br>") : "Никого на смене") + "</p></div>";
+
+      document.getElementById("screen-sales").innerHTML = "<h2>Чеки за день</h2>" +
+        (daySales.length ? daySales.map(function (s) {
+          const lines = data.items.filter(function (it) {
+            return it.device_id === s.device_id && it.sale_op_id === s.client_op_id;
+          }).sort(function (a, b) { return num(a.position) - num(b.position); });
+          return "<div class='card'><div class='row'><b>" + hm(s.local_ts) + " · " + payName(s.payment) +
+            "</b><b>" + rub(s.total) + "</b></div><p class='muted'>Обслуживали: " + names(s.served_by) +
+            "</p><ul>" + (lines.length ? lines.map(function (it) {
+              return "<li>" + escapeHtml(it.name || "позиция") + " × " + num(it.qty) + " · " + rub(num(it.price) * num(it.qty)) + "</li>";
+            }).join("") : "<li class='muted'>Без строк</li>") + "</ul></div>";
+        }).join("") : "<p class='muted'>За этот день чеков нет.</p>");
+
+      document.getElementById("screen-visits").innerHTML = "<h2>Визиты</h2>" +
+        (dayVisits.length ? dayVisits.map(function (v) {
+          const itemText = Array.isArray(v.items) ? v.items.map(function (it) {
+            return escapeHtml((it && it.name) || "позиция");
+          }).join(", ") : "";
+          return "<div class='card'><div class='row'><b>" + hm(v.local_created_at) + "</b><b>" + rub(v.total) +
+            "</b></div><p>" + (itemText || "Без состава") + "</p><p class='muted'>" + payName(v.payment) +
+            " · " + names(v.served_by) + "</p></div>";
+        }).join("") : "<p class='muted'>За этот день визитов нет.</p>");
+
+      document.getElementById("screen-shifts").innerHTML = "<h2>Смены</h2>" +
+        (dayShifts.length ? dayShifts.map(function (s) {
+          const lines = data.payroll.filter(function (p) {
+            return p.device_id === s.device_id && Number(p.shift_local_id) === Number(s.local_id);
+          });
+          const cols = data.collections.filter(function (c) {
+            return c.device_id === s.device_id && Number(c.shift_local_id) === Number(s.local_id);
+          });
+          return "<div class='card'><b>Смена #" + s.local_id + "</b><p class='muted'>" + hm(s.started_at) +
+            (s.ended_at == null ? " · открыта" : (" → " + hm(s.ended_at))) + "</p>" +
+            "<p>Выручка " + rub(s.revenue_total) + " · наличные " + rub(s.revenue_cash) +
+            " · карта " + rub(s.revenue_card) + " · QR " + rub(s.revenue_qr) + "</p>" +
+            "<p>ЗП начислено " + rub(s.payroll_total) + ", выдано " + rub(s.payroll_paid) +
+            ", долг " + rub(s.payroll_debt) + "</p><ul>" +
+            (lines.length ? lines.map(function (p) {
+              return "<li>" + escapeHtml([p.last_name, p.first_name].filter(Boolean).join(" ")) +
+                ": к выплате " + rub(p.pay) + ", выдано " + rub(p.paid) + ", долг " + rub(p.debt) + "</li>";
+            }).join("") : "<li class='muted'>Строк ЗП нет</li>") +
+            (cols.length ? cols.map(function (c) {
+              return "<li>Инкассация " + hm(c.local_ts) + " · " + rub(c.amount) +
+                (c.note ? " · " + escapeHtml(c.note) : "") + "</li>";
+            }).join("") : "") +
+            "</ul></div>";
+        }).join("") : "<p class='muted'>Смен с началом в этот день нет.</p>");
+    }
+
+    function stat(label, value, blue) {
+      return "<div class='card stat'><span class='muted'>" + label + "</span><b class='" + (blue ? "blue" : "") + "'>" + value + "</b></div>";
+    }
+
+    function payName(p) {
+      if (p === "cash") return "Наличные";
+      if (p === "card") return "Карта";
+      if (p === "qr") return "QR";
+      return p || "—";
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[c];
+      });
+    }
+
+    async function enter(tokens, email) {
+      accessToken = tokens.access_token;
+      writeSession(tokens.refresh_token, email);
+      const ok = await ensureOwner();
+      if (!ok) return;
+      showApp();
+      await loadDashboard();
+      if (timer) clearInterval(timer);
+      timer = setInterval(loadDashboard, 20000);
+    }
+
+    document.getElementById("login-form").addEventListener("submit", async function (e) {
+      e.preventDefault();
+      const errEl = document.getElementById("login-err");
+      errEl.textContent = "";
+      try {
+        const tokens = await authPost("password", {
+          email: emailInput.value.trim(),
+          password: passInput.value
+        });
+        await enter(tokens, emailInput.value.trim());
+      } catch (err) {
+        errEl.textContent = err.message || "Вход не выполнен";
+      }
+    });
+
+    logoutBtn.addEventListener("click", function () {
+      clearSession();
+      showLogin();
+    });
+
+    dayInput.addEventListener("change", function () {
+      if (accessToken) loadDashboard();
+    });
+
+    document.getElementById("tabs").addEventListener("click", function (e) {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      document.querySelectorAll(".tabs button").forEach(function (b) { b.classList.toggle("on", b === btn); });
+      ["today", "sales", "visits", "shifts"].forEach(function (name) {
+        document.getElementById("screen-" + name).classList.toggle("hide", btn.dataset.tab !== name);
+      });
+    });
+
+    (async function boot() {
+      const hash = location.hash;
+      if ((hash === "#demo" || hash === "#demo-denied") && loopback(urlInput.value)) {
+        emailInput.value = hash === "#demo-denied" ? "nobody@example.com" : "owner@example.com";
+        passInput.value = "owner-pass";
+        document.getElementById("login-form").requestSubmit();
+        return;
+      }
+      const session = readSession();
+      if (!session || !session.refresh_token) return;
+      try {
+        const tokens = await authPost("refresh_token", { refresh_token: session.refresh_token });
+        await enter(tokens, session.email);
+      } catch (e) {
+        clearSession();
+      }
+    })();
+  </script>
+</body>
+</html>
